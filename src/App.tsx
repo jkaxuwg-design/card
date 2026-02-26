@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { THEMES, ThemeConfig } from './config/themes';
 import { Stage, Layer, Rect, Text, Group, Label, Tag, Image as KonvaImage, Transformer, Line } from 'react-konva';
-import { Download, LayoutTemplate, Type, Hash, Image as ImageIcon, Plus, Trash2, Globe } from 'lucide-react';
+import { Download, LayoutTemplate, Type, Hash, Image as ImageIcon, Plus, Trash2, Globe, AlignLeft, AlignCenter, AlignRight, Save, X } from 'lucide-react';
 import useImage from 'use-image';
 
 type ElementType = 'title' | 'body' | 'tag' | 'image';
@@ -20,6 +20,7 @@ interface CanvasElement {
   scaleX?: number;
   scaleY?: number;
   fontSize?: number;
+  align?: 'left' | 'center' | 'right';
 }
 
 const TRANSLATIONS = {
@@ -28,33 +29,39 @@ const TRANSLATIONS = {
     appSubtitle: 'Auto-Layout MVP',
     sectionContent: 'Content',
     sectionThemes: 'Themes (Big 10)',
+    sectionTemplates: 'Templates',
     btnAddImage: 'Add Image',
     btnAddText: 'Add Text',
     btnExport: 'Export Image',
+    btnSaveTemplate: 'Save Template',
     placeholderTitle: 'Enter title...',
     placeholderBody: 'Enter body text...',
     placeholderTag: 'Tag',
     labelSize: 'Size',
+    labelAlign: 'Align',
   },
   zh: {
     appName: 'RaTEL AI 排版引擎',
     appSubtitle: '自动排版 MVP',
     sectionContent: '内容编辑',
     sectionThemes: '十大巨头风格',
+    sectionTemplates: '我的模板',
     btnAddImage: '添加图片',
     btnAddText: '添加文本',
     btnExport: '导出图片',
+    btnSaveTemplate: '保存模板',
     placeholderTitle: '输入标题...',
     placeholderBody: '输入正文...',
     placeholderTag: '标签',
     labelSize: '字号',
+    labelAlign: '对齐',
   }
 };
 
 // Initial elements with a placeholder image
 const INITIAL_ELEMENTS: CanvasElement[] = [
-  { id: 'title', type: 'title', text: 'AI Daily News', x: 60, y: 100, width: 480 },
-  { id: 'body', type: 'body', text: 'OpenAI just released a new model that changes everything. Here is what you need to know about the latest developments in artificial intelligence.', x: 60, y: 500, width: 480 },
+  { id: 'title', type: 'title', text: 'AI Daily News', x: 60, y: 100, width: 480, align: 'left' },
+  { id: 'body', type: 'body', text: 'OpenAI just released a new model that changes everything. Here is what you need to know about the latest developments in artificial intelligence.', x: 60, y: 500, width: 480, align: 'left' },
   { id: 'tag1', type: 'tag', text: '#AI', x: 60, y: 60, width: 0 },
   { id: 'tag2', type: 'tag', text: '#Tech', x: 140, y: 60, width: 0 },
 ];
@@ -64,12 +71,14 @@ const CANVAS_WIDTH = 600;
 const CANVAS_HEIGHT = 800; // 3:4 aspect ratio
 
 // URLImage component for loading images in Konva
-const URLImage = ({ element, isSelected, onSelect, onChange, theme }: { 
+const URLImage = ({ element, isSelected, onSelect, onChange, theme, onDragMove, onDragEnd }: { 
   element: CanvasElement, 
   isSelected: boolean, 
   onSelect: () => void,
   onChange: (newAttrs: Partial<CanvasElement>) => void,
-  theme: ThemeConfig
+  theme: ThemeConfig,
+  onDragMove?: (e: any) => void,
+  onDragEnd?: (e: any) => void
 }) => {
   const [image] = useImage(element.src || '');
   const shapeRef = useRef<any>(null);
@@ -94,6 +103,7 @@ const URLImage = ({ element, isSelected, onSelect, onChange, theme }: {
         width={element.width}
         height={element.height || (image ? (image.height * (element.width / image.width)) : 200)}
         draggable
+        onDragMove={onDragMove}
         rotation={element.rotation}
         scaleX={element.scaleX}
         scaleY={element.scaleY}
@@ -103,6 +113,7 @@ const URLImage = ({ element, isSelected, onSelect, onChange, theme }: {
             x: e.target.x(),
             y: e.target.y(),
           });
+          if (onDragEnd) onDragEnd(e);
         }}
         onTransformEnd={(e) => {
           const node = shapeRef.current;
@@ -230,6 +241,167 @@ export default function App() {
   const theme = THEMES[themeId];
   const t = TRANSLATIONS[lang];
 
+  const [guides, setGuides] = useState<{ vertical: number | null; horizontal: number | null }>({ vertical: null, horizontal: null });
+  const [templates, setTemplates] = useState<{ id: string; name: string; themeId: string; elements: CanvasElement[] }[]>([]);
+
+  useEffect(() => {
+    const saved = localStorage.getItem('ratel_templates');
+    if (saved) {
+      try {
+        setTemplates(JSON.parse(saved));
+      } catch (e) {
+        console.error('Failed to load templates', e);
+      }
+    }
+  }, []);
+
+  const saveTemplate = () => {
+    const name = prompt(lang === 'en' ? 'Enter template name:' : '输入模板名称:');
+    if (name) {
+      const newTemplate = {
+        id: `tpl-${Date.now()}`,
+        name,
+        themeId,
+        elements,
+      };
+      const newTemplates = [...templates, newTemplate];
+      setTemplates(newTemplates);
+      localStorage.setItem('ratel_templates', JSON.stringify(newTemplates));
+    }
+  };
+
+  const loadTemplate = (tpl: typeof templates[0]) => {
+    if (confirm(lang === 'en' ? 'Load this template? Current changes will be lost.' : '加载此模板？当前更改将丢失。')) {
+      setThemeId(tpl.themeId);
+      setElements(tpl.elements);
+    }
+  };
+
+  const deleteTemplate = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (confirm(lang === 'en' ? 'Delete this template?' : '删除此模板？')) {
+      const newTemplates = templates.filter(t => t.id !== id);
+      setTemplates(newTemplates);
+      localStorage.setItem('ratel_templates', JSON.stringify(newTemplates));
+    }
+  };
+
+  const handleDragMove = (e: any, currentId: string) => {
+    const node = e.target;
+    const stage = node.getStage();
+    
+    // Snap tolerance
+    const SNAP = 10;
+    
+    // Current node geometry
+    let x = node.x();
+    let y = node.y();
+    const w = node.width() * node.scaleX();
+    const h = node.height() * node.scaleY();
+    
+    let newX = x;
+    let newY = y;
+    let newV: number | null = null;
+    let newH: number | null = null;
+    
+    // Collect all snap lines from other elements and canvas center
+    const vLines: number[] = [CANVAS_WIDTH / 2]; // Vertical lines (X coords)
+    const hLines: number[] = [CANVAS_HEIGHT / 2]; // Horizontal lines (Y coords)
+    
+    elements.forEach(el => {
+      if (el.id === currentId) return;
+      // Find the Konva node to get accurate dimensions (especially for Text)
+      const other = stage.findOne('#' + el.id);
+      if (other) {
+        const ow = other.width() * other.scaleX();
+        const oh = other.height() * other.scaleY();
+        const ox = other.x();
+        const oy = other.y();
+        
+        vLines.push(ox, ox + ow / 2, ox + ow);
+        hLines.push(oy, oy + oh / 2, oy + oh);
+      }
+    });
+    
+    // --- Horizontal Snapping (Y-axis) ---
+    let minDiffH = SNAP + 1;
+    
+    // 1. Top edge to lines
+    hLines.forEach(line => {
+      const diff = Math.abs(line - y);
+      if (diff < minDiffH) {
+        minDiffH = diff;
+        newY = line;
+        newH = line;
+      }
+    });
+    
+    // 2. Center to lines
+    const centerY = y + h / 2;
+    hLines.forEach(line => {
+      const diff = Math.abs(line - centerY);
+      if (diff < minDiffH) {
+        minDiffH = diff;
+        newY = line - h / 2;
+        newH = line;
+      }
+    });
+    
+    // 3. Bottom edge to lines
+    const bottomY = y + h;
+    hLines.forEach(line => {
+      const diff = Math.abs(line - bottomY);
+      if (diff < minDiffH) {
+        minDiffH = diff;
+        newY = line - h;
+        newH = line;
+      }
+    });
+
+    // --- Vertical Snapping (X-axis) ---
+    let minDiffV = SNAP + 1;
+    
+    // 1. Left edge to lines
+    vLines.forEach(line => {
+      const diff = Math.abs(line - x);
+      if (diff < minDiffV) {
+        minDiffV = diff;
+        newX = line;
+        newV = line;
+      }
+    });
+    
+    // 2. Center to lines
+    const centerX = x + w / 2;
+    vLines.forEach(line => {
+      const diff = Math.abs(line - centerX);
+      if (diff < minDiffV) {
+        minDiffV = diff;
+        newX = line - w / 2;
+        newV = line;
+      }
+    });
+    
+    // 3. Right edge to lines
+    const rightX = x + w;
+    vLines.forEach(line => {
+      const diff = Math.abs(line - rightX);
+      if (diff < minDiffV) {
+        minDiffV = diff;
+        newX = line - w;
+        newV = line;
+      }
+    });
+
+    // Apply snap
+    node.position({ x: newX, y: newY });
+    
+    // Update guides state
+    if (newV !== guides.vertical || newH !== guides.horizontal) {
+      setGuides({ vertical: newV, horizontal: newH });
+    }
+  };
+
   const handleDragEnd = (e: any, id: string) => {
     const node = e.target;
     setElements(
@@ -240,6 +412,7 @@ export default function App() {
         return el;
       })
     );
+    setGuides({ vertical: null, horizontal: null });
   };
 
   const handleTextChange = (id: string, newText: string) => {
@@ -419,24 +592,75 @@ export default function App() {
                   />
                 )}
 
-                {/* Font Size Control for Title and Body */}
+                {/* Font Size and Align Control for Title and Body */}
                 {(el.type === 'title' || el.type === 'body') && (
-                  <div className="flex items-center gap-3 pt-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <span className="text-[10px] text-neutral-500 uppercase font-bold tracking-wider w-8">{t.labelSize || 'Size'}</span>
-                    <input
-                      type="range"
-                      min="12"
-                      max="120"
-                      step="1"
-                      value={getElementFontSize(el)}
-                      onChange={(e) => handleElementChange(el.id, { fontSize: parseInt(e.target.value) })}
-                      className="flex-1 h-1 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
-                    />
-                    <span className="text-[10px] text-neutral-400 w-6 text-right font-mono">{getElementFontSize(el)}</span>
+                  <div className="flex flex-col gap-2 pt-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex items-center gap-3">
+                      <span className="text-[10px] text-neutral-500 uppercase font-bold tracking-wider w-8">{t.labelSize || 'Size'}</span>
+                      <input
+                        type="range"
+                        min="12"
+                        max="120"
+                        step="1"
+                        value={getElementFontSize(el)}
+                        onChange={(e) => handleElementChange(el.id, { fontSize: parseInt(e.target.value) })}
+                        className="flex-1 h-1 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                      />
+                      <span className="text-[10px] text-neutral-400 w-6 text-right font-mono">{getElementFontSize(el)}</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-[10px] text-neutral-500 uppercase font-bold tracking-wider w-8">{t.labelAlign || 'Align'}</span>
+                      <div className="flex gap-1">
+                        {(['left', 'center', 'right'] as const).map((align) => (
+                          <button
+                            key={align}
+                            onClick={() => handleElementChange(el.id, { align })}
+                            className={`p-1 rounded ${el.align === align ? 'bg-indigo-500 text-white' : 'bg-neutral-700 text-neutral-400 hover:bg-neutral-600'}`}
+                            title={align}
+                          >
+                            {align === 'left' && <AlignLeft className="w-3 h-3" />}
+                            {align === 'center' && <AlignCenter className="w-3 h-3" />}
+                            {align === 'right' && <AlignRight className="w-3 h-3" />}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
             ))}
+          </div>
+
+          {/* Templates Section */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xs font-bold text-neutral-500 uppercase tracking-wider">{t.sectionTemplates}</h2>
+              <button 
+                onClick={saveTemplate}
+                className="text-xs flex items-center gap-1 text-indigo-400 font-medium hover:text-indigo-300 transition-colors"
+              >
+                <Save className="w-3 h-3" /> {t.btnSaveTemplate}
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {templates.map(tpl => (
+                <div key={tpl.id} className="group relative p-3 bg-neutral-800 rounded-lg border border-neutral-700 hover:border-indigo-500/50 transition-all cursor-pointer" onClick={() => loadTemplate(tpl)}>
+                  <div className="text-sm font-medium text-neutral-300 truncate">{tpl.name}</div>
+                  <div className="text-[10px] text-neutral-500 mt-1">{THEMES[tpl.themeId]?.name || tpl.themeId}</div>
+                  <button 
+                    onClick={(e) => deleteTemplate(tpl.id, e)}
+                    className="absolute top-1 right-1 p-1 text-neutral-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+              {templates.length === 0 && (
+                <div className="col-span-2 text-center py-4 text-xs text-neutral-600 italic">
+                  {lang === 'en' ? 'No templates saved' : '暂无保存的模板'}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Theme Switcher */}
@@ -531,6 +755,8 @@ export default function App() {
                       onSelect={() => setSelectedId(el.id)}
                       onChange={(newAttrs) => handleElementChange(el.id, newAttrs)}
                       theme={theme}
+                      onDragMove={(e) => handleDragMove(e, el.id)}
+                      onDragEnd={(e) => handleDragEnd(e, el.id)}
                     />
                   );
                 }
@@ -539,9 +765,11 @@ export default function App() {
                   return (
                     <Label
                       key={el.id}
+                      id={el.id}
                       x={el.x}
                       y={el.y}
                       draggable
+                      onDragMove={(e) => handleDragMove(e, el.id)}
                       onDragEnd={(e) => handleDragEnd(e, el.id)}
                       onClick={() => setSelectedId(el.id)}
                       onTap={() => setSelectedId(el.id)}
@@ -572,6 +800,7 @@ export default function App() {
                 return (
                   <Text
                     key={el.id}
+                    id={el.id}
                     x={el.x}
                     y={el.y}
                     text={el.text}
@@ -580,8 +809,11 @@ export default function App() {
                     fontSize={getElementFontSize(el)}
                     fontStyle={el.type === 'title' ? theme.titleWeight : theme.bodyWeight}
                     fill={el.type === 'title' ? theme.titleColor : theme.bodyColor}
+                    align={el.align || 'left'}
                     lineHeight={theme.id === 'pixel' ? 1.6 : 1.4} // Wider line height for pixel theme
+                    padding={el.type === 'title' ? 20 : 10} // Add padding for better typography
                     draggable
+                    onDragMove={(e) => handleDragMove(e, el.id)}
                     onDragEnd={(e) => handleDragEnd(e, el.id)}
                     onClick={() => setSelectedId(el.id)}
                     onTap={() => setSelectedId(el.id)}
@@ -591,6 +823,24 @@ export default function App() {
                   />
                 );
               })}
+
+              {/* Alignment Guides */}
+              {guides.vertical && (
+                <Line
+                  points={[guides.vertical, 0, guides.vertical, CANVAS_HEIGHT]}
+                  stroke="#FF00FF"
+                  strokeWidth={1}
+                  dash={[4, 4]}
+                />
+              )}
+              {guides.horizontal && (
+                <Line
+                  points={[0, guides.horizontal, CANVAS_WIDTH, guides.horizontal]}
+                  stroke="#FF00FF"
+                  strokeWidth={1}
+                  dash={[4, 4]}
+                />
+              )}
             </Layer>
           </Stage>
 
@@ -602,6 +852,7 @@ export default function App() {
               onChange={(text) => handleTextChange(editingElement.id, text)}
               onClose={() => setEditingId(null)}
               fontSize={getElementFontSize(editingElement)}
+              align={editingElement.align}
             />
           )}
         </div>
@@ -611,19 +862,27 @@ export default function App() {
 }
 
 // Helper component for in-place editing
-function HtmlInputOverlay({ element, theme, onChange, onClose, fontSize }: { element: CanvasElement, theme: ThemeConfig, onChange: (val: string) => void, onClose: () => void, fontSize?: number }) {
+function HtmlInputOverlay({ element, theme, onChange, onClose, fontSize, align }: { 
+  element: CanvasElement; 
+  theme: Theme; 
+  onChange: (val: string) => void; 
+  onClose: () => void; 
+  fontSize?: number;
+  align?: 'left' | 'center' | 'right';
+}) {
   const isTitle = element.type === 'title';
   const isTag = element.type === 'tag';
   
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' || (e.key === 'Enter' && (isTitle || isTag))) {
+      // Only close on Enter for Tags. For Title and Body, Enter should add a new line.
+      if (e.key === 'Escape' || (e.key === 'Enter' && isTag)) {
         onClose();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isTitle, isTag, onClose]);
+  }, [isTag, onClose]);
 
   return (
     <textarea
@@ -641,15 +900,20 @@ function HtmlInputOverlay({ element, theme, onChange, onClose, fontSize }: { ele
         fontFamily: isTitle ? theme.titleFont : theme.bodyFont,
         fontWeight: isTitle ? theme.titleWeight : isTag ? 'bold' : theme.bodyWeight,
         color: isTitle ? theme.titleColor : isTag ? theme.tagColor : theme.bodyColor,
+        textAlign: align || 'left',
         lineHeight: theme.id === 'pixel' ? 1.6 : 1.4,
         background: isTag ? theme.tagBg : 'transparent',
         border: '1px dashed #6366f1',
         outline: 'none',
         resize: 'none',
-        padding: 0,
+        padding: isTitle ? '20px' : '10px',
         margin: 0,
         overflow: 'hidden',
         zIndex: 10,
+        whiteSpace: 'pre-wrap',
+        wordBreak: 'break-word',
+        overflowWrap: 'break-word',
+        boxSizing: 'border-box', // Ensure padding is included in width
       }}
     />
   );
